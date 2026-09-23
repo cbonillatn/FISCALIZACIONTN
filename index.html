@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Revisión de Transferencias</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#101214;--pn:#181b1e;--ln:#2a2f34;--tx:#d9dde1;--mu:#8a939b;--am:#e8a317;--ok:#3ddc84;--er:#ff5c5c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.5 'JetBrains Mono',monospace}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;border-bottom:2px solid var(--am)}
+h1{font-size:15px;margin:0 auto 0 0;color:var(--am)}
+main{padding:14px;max-width:1000px;margin:auto}
+button,input,select,textarea{font:inherit;color:var(--tx);background:var(--pn);border:1px solid var(--ln);padding:6px 10px;border-radius:2px}
+button{cursor:pointer}button:hover{border-color:var(--am)}
+button.p{background:var(--am);color:#101214;border-color:var(--am);font-weight:700}
+button.x{color:var(--er)}
+input:focus,textarea:focus{outline:2px solid var(--am)}
+.tabs button{border-radius:0}.tabs button.on{background:var(--am);color:#101214;font-weight:700}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.bar input[type=text],.bar input:not([type]){flex:1;min-width:180px}
+.row{display:grid;grid-template-columns:1.2fr 1.4fr 1fr auto;gap:8px;padding:8px;border:1px solid var(--ln);border-left:4px solid var(--ln);margin-bottom:6px;background:var(--pn);cursor:pointer;align-items:center}
+.row.en_curso{border-left-color:var(--am)}.row.completa{border-left-color:var(--ok)}
+.it{padding:8px;border:1px solid var(--ln);margin-bottom:6px;background:var(--pn);display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center}
+.it.ok{border-left:4px solid var(--ok)}.it.falta,.it.sobra{border-left:4px solid var(--er)}.it.hi{outline:2px solid var(--am)}
+.mu{color:var(--mu)}.ok{color:var(--ok)}.er{color:var(--er)}.am{color:var(--am)}
+input[type=number]{width:70px}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);padding:10px 16px;background:var(--pn);border:1px solid var(--am);display:none;z-index:9;max-width:90%}
+#camw{display:none;position:fixed;inset:0;background:#000d;z-index:8;padding:14px;text-align:center}
+#camw video{width:100%;max-width:520px;border:2px solid var(--am)}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid var(--ln);padding:5px 8px;text-align:left}
+.hide{display:none}
+#camb{display:none;text-align:center;margin-bottom:8px}#camb video{width:100%;max-width:420px;border:2px solid var(--am)}
+dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%;max-width:480px;padding:16px}dialog::backdrop{background:#000b}
+@media(max-width:640px){.row{grid-template-columns:1fr 1fr}.it{grid-template-columns:1fr auto}}
+</style></head><body>
+<header>
+ <h1>Revisión de Transferencias</h1>
+ <span class="tabs"><button id="t1" class="on" onclick="tab(1)">Transferencias</button><button id="t2" onclick="tab(2)">Reporte diario</button></span>
+ <button id="rol" onclick="rolSw()">Rol: Usuario</button>
+ <button onclick="load(1)">Actualizar</button>
+</header>
+<main>
+<section id="v1">
+ <div class="bar">
+  <label class="p" style="padding:6px 10px;cursor:pointer;background:var(--am);color:#101214;font-weight:700">Cargar XML<input type="file" id="fx" accept=".xml" multiple class="hide" onchange="upl(this.files)"></label>
+  <input id="q" placeholder="Buscar documento, bodega destino, usuario, fecha o código" oninput="list()">
+  <select id="fl" onchange="list()"><option value="pend">Pendientes</option><option value="all">Todas</option><option value="inc">Incompletas</option><option value="done">Revisadas (historial)</option></select>
+ </div>
+ <div id="list"></div>
+</section>
+<section id="v3" class="hide">
+ <div class="bar"><button onclick="back()">← Salir</button><b id="rt"></b><button onclick="stream?camOff():cam()">Cámara</button></div>
+ <div id="camb"><video id="vid" playsinline muted></video></div>
+ <div id="items"></div>
+ <div class="bar"><input id="sc" placeholder="Ingresar código manualmente y Enter" onkeydown="if(event.key==='Enter'){scan(this.value);this.value=''}"><button onclick="scan($('#sc').value);$('#sc').value=''">Ingresar</button></div>
+ <div class="bar"><button class="p" onclick="fin()">Finalizar revisión de TS</button></div>
+</section>
+<dialog id="dg"></dialog>
+<section id="v2" class="hide">
+ <div class="bar"><input type="date" id="dt" onchange="rep()"><button class="p" onclick="rep()">Generar reporte</button><button onclick="xl()">Exportar Excel</button></div>
+ <div id="rp"></div>
+</section>
+</main>
+<div id="toast"></div>
+<script>
+const API='https://script.google.com/macros/s/AKfycbxsM067vS9IgrSuiQ2YrKiseMd0NgfMIjuhMM6QKu9hgvEFOQWrtIkm-GGd-AyZQ8kgHQ/exec';
+let D={},R={},cur=null,SUP='',stream=null,tm=null;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num=v=>parseFloat(String(v||'0').replace(',','.'))||0;
+function toast(m,bad){const t=$('#toast');t.textContent=m;t.style.borderColor=bad?'var(--er)':'var(--am)';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2600);if(bad&&navigator.vibrate)navigator.vibrate(200)}
+async function api(o){const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(o)});return r.json()}
+async function load(m){try{const r=await(await fetch(API)).json();D={};(r.docs||[]).forEach(d=>D[d.doc]=d);const keep=cur&&R[cur];R={};(r.revs||[]).forEach(v=>R[v.doc]=v);if(keep)R[cur]=keep;if(!cur)list();if(m)toast('Datos actualizados')}catch(e){toast('No se pudo conectar con Google Sheets',1)}}
+function tab(n){cur=null;camOff();[1,2,3].forEach(i=>$('#v'+i).classList.toggle('hide',i!==n));$('#t1').classList.toggle('on',n===1);$('#t2').classList.toggle('on',n===2);if(n===1)list();if(n===2){if(!$('#dt').value)$('#dt').value=new Date().toISOString().slice(0,10);rep()}}
+async function rolSw(){if(SUP){SUP='';}else{const k=prompt('Clave de Super usuario');if(!k)return;const r=await api({a:'checkKey',key:k});if(!r.ok)return toast('Clave incorrecta',1);SUP=k}$('#rol').textContent='Rol: '+(SUP?'Super usuario':'Usuario');if(!cur)list()}
+
+// ---------- XML ----------
+function parseXML(t){
+ const x=new DOMParser().parseFromString(t,'text/xml');if(x.querySelector('parsererror'))throw new Error('XML inválido');
+ const docs={};
+ [...x.getElementsByTagName('NO_ARTI')].forEach(a=>{
+  const el=a.parentElement,h={};
+  for(let e=el;e;e=e.parentElement)[...e.children].forEach(c=>{if(!c.children.length&&!(c.tagName in h))h[c.tagName]=c.textContent.trim()});
+  if(!h.NO_DOCU)return;
+  const d=docs[h.NO_DOCU]||(docs[h.NO_DOCU]={doc:h.NO_DOCU,cia:h.NO_CIA||'',orig:h.BOD_ORIG||'',dest:h.BOD_DEST||'',fecha:h.FECHA||'',user:h.USUARIO||'',obs:h.OBSERV1||'',items:{}});
+  const it=d.items[h.NO_ARTI]||(d.items[h.NO_ARTI]={code:h.NO_ARTI,desc:h.CF_DESCRI_ARTI_UNIDAD||'',ubic:h.UBICACION||'',un:0,costo:0,series:[]});
+  it.un+=num(h.UNIDADES);it.costo+=num(h.CF_TOTAL);
+  [...el.getElementsByTagName('SERIE')].forEach(s=>{const v=s.textContent.trim();if(v&&!it.series.includes(v))it.series.push(v)});
+ });
+ return Object.values(docs);
+}
+async function upl(files){
+ let nuevos=0,dups=[];
+ for(const f of files){try{const ds=parseXML(await f.text()),add=[];ds.forEach(d=>{if(D[d.doc])dups.push(d.doc);else{D[d.doc]=d;add.push(d);nuevos++}});if(add.length)await api({a:'saveDocs',docs:add})}catch(e){toast(f.name+': '+e.message,1)}}
+ $('#fx').value='';list();toast(nuevos+' nuevas'+(dups.length?' · Ya estaban subidas: '+dups.join(', '):''),dups.length>0)
+}
+
+// ---------- Lista ----------
+const rev=k=>R[k]||(R[k]={doc:k,estado:'en_curso',cnt:{},ser:{},done:{}});
+const tot=d=>Object.values(d.items).reduce((s,i)=>s+i.un,0);
+function list(){
+ const q=$('#q').value.trim().toLowerCase(),f=$('#fl').value;
+ const ds=Object.values(D).filter(d=>{
+  const e=R[d.doc]&&R[d.doc].estado;
+  if(f==='pend'&&e==='completa')return false;if(f==='done'&&e!=='completa')return false;if(f==='inc'&&e!=='en_curso')return false;
+  if(!q)return true;
+  return [d.doc,d.dest,d.user,d.fecha].some(v=>String(v).toLowerCase().includes(q))||Object.keys(d.items).some(c=>c.toLowerCase().includes(q))
+ }).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+ $('#list').innerHTML=ds.map(d=>{const e=(R[d.doc]&&R[d.doc].estado)||'nueva';
+  const hit=q&&Object.keys(d.items).filter(c=>c.toLowerCase().includes(q));
+  return `<div class="row ${e}" data-d="${esc(d.doc)}" onclick="openDoc(this.dataset.d)"><div><b>${esc(d.doc)}</b><div class="mu">${esc(d.fecha)}</div></div><div>${esc(d.orig)} → <b>${esc(d.dest)}</b><div class="mu">${esc(d.user)}</div></div><div class="mu">${Object.keys(d.items).length} art. · ${tot(d)} un.${hit&&hit.length?'<div class="am">contiene: '+esc(hit.join(', '))+'</div>':''}</div><div>${e==='en_curso'?'<span class="am">en curso</span>':e==='completa'?'<span class="ok">revisada</span>':'<span class="mu">pendiente</span>'}${SUP?` <button class="x" data-d="${esc(d.doc)}" onclick="event.stopPropagation();del(this.dataset.d)">Eliminar</button>`:''}</div></div>`}).join('')||'<p class="mu">No hay transferencias. Carga un XML para empezar.</p>';
+}
+async function del(k){if(!confirm('¿Eliminar la transferencia '+k+' y su revisión?'))return;const r=await api({a:'delDoc',doc:k,key:SUP});if(!r.ok)return toast(r.error,1);delete D[k];delete R[k];list()}
+
+// ---------- Revisión ----------
+const dg=$('#dg'),its=()=>Object.values(D[cur].items);let dm=null;
+dg.addEventListener('close',()=>{dm=null});
+const isDone=it=>!!rev(cur).done[it.code];
+const got=it=>{const r=rev(cur);return it.series.length?(r.ser[it.code]||[]).length:(r.cnt[it.code]||0)};
+function openDoc(k){cur=k;const r=rev(k);r.done=r.done||{};[1,2,3].forEach(i=>$('#v'+i).classList.toggle('hide',i!==3));const d=D[k];$('#rt').textContent=k+'  '+d.orig+' → '+d.dest;draw();cam()}
+function back(){camOff();if(dg.open)dg.close();cur=null;tab(1);load()}
+function save(){clearTimeout(tm);tm=setTimeout(()=>api({a:'saveRev',rev:R[cur]}),400)}
+function draw(){$('#items').innerHTML=its().map(it=>{const c=got(it),d=isDone(it),ok=c===it.un;return `<div class="it ${d?(ok?'ok':'falta'):''}"><div><b>${esc(it.code)}</b> <span class="mu">${esc(it.desc)}</span></div><div>${!d?'<span class="mu">pendiente</span>':ok?'<span class="ok">OK</span>':`<span class="er">${c<it.un?'faltan '+(it.un-c):'sobran '+(c-it.un)}</span>`}</div></div>`}).join('')}
+function show(h){dg.innerHTML=h;if(!dg.open)dg.showModal()}
+function closeDg(){dm=null;if(dg.open)dg.close();$('#sc').focus()}
+function scan(v){
+ v=String(v||'').trim();if(!v||!cur||(dm&&dm.t!=='sr'))return;
+ if(dm)return serie(v);
+ const it=its().find(i=>i.code.toLowerCase()===v.toLowerCase());
+ if(!it)return err('El código '+v+' no pertenece a esta transferencia.');
+ it.series.length?openSr(it):openNs(it)
+}
+function err(m){const prev=dm;dm={t:'err',prev};if(navigator.vibrate)navigator.vibrate(300);show(`<h3 class="er">Alerta</h3><p>${esc(m)}</p><button class="p" onclick="errOk()">Continuar</button>`)}
+function errOk(){const p=dm.prev;dm=p;if(p&&p.t==='sr')renderSr(p.it);else if(p&&p.t==='ns')openNs(p.it);else closeDg()}
+function head(it){return `<h3>${esc(it.code)}</h3><p class="mu">${esc(it.desc)}${it.ubic?' · '+esc(it.ubic):''}</p>`}
+function openNs(it){dm={t:'ns',it};const c=rev(cur).cnt[it.code];show(head(it)+`<label>Cantidad<br><input id="qn" type="number" min="0" inputmode="numeric" value="${c??''}" onkeydown="if(event.key==='Enter')nsOk()"></label><p><button class="p" onclick="nsOk()">Confirmar</button> <button onclick="closeDg()">Cancelar</button></p>`);$('#qn').focus()}
+function nsOk(){const n=parseInt($('#qn').value);if(isNaN(n)||n<0)return toast('Ingresa una cantidad válida',1);rev(cur).cnt[dm.it.code]=n;res(dm.it)}
+function openSr(it){dm={t:'sr',it};renderSr(it)}
+function renderSr(it){const a=rev(cur).ser[it.code]||[];dm={t:'sr',it};show(head(it)+`<p>Escanea las series con la cámara o ingrésalas.</p><p class="am">Series leídas: <b>${a.length}</b></p><div class="mu">${a.map(esc).join('<br>')}</div><p><input id="sn" placeholder="Serie" onkeydown="if(event.key==='Enter'){serie(this.value)}"> <button onclick="serie($('#sn').value)">Agregar</button></p><p><button class="p" onclick="res(dm.it)">Terminar artículo</button> <button onclick="closeDg()">Cancelar</button></p>`);$('#sn').focus()}
+function serie(v){
+ v=String(v||'').trim();if(!v)return;const it=dm.it,r=rev(cur),a=r.ser[it.code]||(r.ser[it.code]=[]);
+ if(!it.series.includes(v))return err('La serie '+v+' no corresponde a este artículo de la transferencia.');
+ if(a.includes(v))return err('La serie '+v+' ya fue escaneada.');
+ a.push(v);r.estado='en_curso';save();a.length===it.un?res(it):renderSr(it)
+}
+function res(it){
+ dm={t:'res',it};const c=got(it),u=it.un,r=rev(cur);r.estado='en_curso';save();
+ show(head(it)+(c===u?`<h2 class="ok">OK</h2><p>${c} unidades${it.series.length?' y series OK':''}.</p>`:`<h2 class="er">Diferencia</h2><p>${c<u?'Faltan '+(u-c)+' unidades':'Sobran '+(c-u)+' unidades'}.</p>`)+`<p><button onclick="${it.series.length?'openSr':'openNs'}(dm.it)">Corregir</button> <button class="p" onclick="cont()">Continuar</button></p>`)
+}
+function cont(){rev(cur).done[dm.it.code]=true;save();draw();closeDg()}
+const difs=()=>its().filter(i=>got(i)!==i.un).map(i=>({code:i.code,desc:i.desc,esp:i.un,cnt:got(i)}));
+function fin(){
+ const p=its().filter(i=>!isDone(i));if(p.length)return toast('Faltan '+p.length+' artículos por revisar. Puedes salir y continuar después.',1);
+ const df=difs();if(!df.length)return finish();
+ dm={t:'fin'};show(`<h3>Novedades de la transferencia</h3>${df.map(x=>`<div class="er">${esc(x.code)}: esperado ${x.esp}, contado ${x.cnt}</div>`).join('')}<p><label>Preparó<br><input id="fp" value="${esc(D[cur].user)}"></label></p><p><label>Detalle de la novedad<br><textarea id="fn" rows="3" style="width:100%"></textarea></label></p><p><button class="p" onclick="finish(1)">Guardar y finalizar</button> <button onclick="closeDg()">Cancelar</button></p>`)
+}
+function finish(f){
+ const d=D[cur],r=rev(cur),df=difs();
+ if(f){r.prep=$('#fp').value.trim();r.novedad=$('#fn').value.trim();if(!r.prep||!r.novedad)return toast('Indica quién preparó y el detalle',1)}
+ r.difs=df;r.nItems=its().length;r.esp=tot(d);r.got=its().reduce((s,i)=>s+got(i),0);r.estado='completa';r.fin=new Date().toISOString();
+ clearTimeout(tm);api({a:'saveRev',rev:r});closeDg();toast('Revisión finalizada');back()
+}
+
+// ---------- Cámara ----------
+async function cam(){
+ if(stream)return;
+ try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})}catch(e){return toast('No se pudo abrir la cámara (requiere HTTPS y permiso). Usa el ingreso manual.',1)}
+ const v=$('#vid');v.srcObject=stream;await v.play();$('#camb').style.display='block';
+ const c=document.createElement('canvas'),x=c.getContext('2d',{willReadFrequently:true});let last='',lt=0;
+ (function tick(){if(!stream)return;if(v.videoWidth){c.width=v.videoWidth;c.height=v.videoHeight;x.drawImage(v,0,0);const q=jsQR(x.getImageData(0,0,c.width,c.height).data,c.width,c.height);if(q&&q.data&&(q.data!==last||Date.now()-lt>2500)){last=q.data;lt=Date.now();scan(q.data)}}requestAnimationFrame(tick)})()
+}
+function camOff(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('#camb').style.display='none'}
+
+// ---------- Reporte ----------
+function repData(){
+ const f=$('#dt').value;
+ return Object.values(R).filter(r=>r.estado==='completa'&&r.fin&&new Date(r.fin).toLocaleDateString('en-CA')===f).map(r=>({...r,d:D[r.doc]||{}}));
+}
+function rep(){
+ const a=repData(),con=a.filter(r=>r.difs&&r.difs.length),n=a.length;
+ const it=a.reduce((s,r)=>s+(r.nItems||0),0),itC=a.reduce((s,r)=>s+(r.difs?r.difs.length:0),0);
+ const pc=(x,y)=>y?(100*x/y).toFixed(1)+'%':'0%';
+ $('#rp').innerHTML=`<h3>Reporte del ${esc($('#dt').value)}</h3><table>
+ <tr><td>Fecha</td><td>${esc($('#dt').value)}</td></tr><tr><td>Transferencias revisadas</td><td>${n}</td></tr>
+ <tr><td>Transferencias sin novedades</td><td class="ok">${n-con.length}</td></tr><tr><td>Transferencias con novedades</td><td class="er">${con.length}</td></tr>
+ <tr><td>Ítems transferidos (artículos revisados)</td><td>${it}</td></tr><tr><td>Ítems sin novedades</td><td class="ok">${it-itC}</td></tr><tr><td>Ítems con novedades</td><td class="er">${itC}</td></tr>
+ <tr><td>% de novedades por transferencia</td><td>${pc(con.length,n)}</td></tr><tr><td>% de novedades por artículo</td><td>${pc(itC,it)}</td></tr></table>
+ <h3 class="am">Detalle de novedades</h3><table><tr><th>Preparado por</th><th># de transferencia</th><th>Detalle</th></tr>
+ ${con.map(r=>`<tr><td>${esc(r.prep)}</td><td>${esc(r.doc)}</td><td>${esc(r.novedad)}<br><span class="mu">${r.difs.map(x=>esc(x.code)+' (esp. '+x.esp+', cont. '+x.cnt+')').join('; ')}</span></td></tr>`).join('')||'<tr><td colspan="3" class="mu">Sin novedades</td></tr>'}</table>`
+}
+function xl(){
+ const a=repData(),rows=[];
+ a.forEach(r=>{const b={Documento:r.doc,Fecha:r.d.fecha,Origen:r.d.orig,Destino:r.d.dest,'Preparó':r.prep||r.d.user,Esperadas:r.esp,Contadas:r.got};
+  if(r.difs&&r.difs.length)r.difs.forEach(x=>rows.push({...b,Codigo:x.code,Descripcion:x.desc,'Esperado':x.esp,'Contado':x.cnt,Novedad:r.novedad}));else rows.push({...b,Novedad:'Sin diferencias'})});
+ if(!rows.length)return toast('No hay datos para esa fecha',1);
+ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Reporte');XLSX.writeFile(wb,'reporte_'+$('#dt').value+'.xlsx')
+}
+load();setInterval(()=>{if(!cur)load()},20000);
+</script></body></html>
