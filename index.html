@@ -3,7 +3,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Revisión de Transferencias</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#101214;--pn:#181b1e;--ln:#2a2f34;--tx:#d9dde1;--mu:#8a939b;--am:#e8a317;--ok:#3ddc84;--er:#ff5c5c}
@@ -37,7 +36,7 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
 <header>
  <h1>Revisión de Transferencias</h1>
  <span class="tabs"><button id="t1" class="on" onclick="tab(1)">Transferencias</button><button id="t2" onclick="tab(2)">Reporte diario</button></span>
- <button id="rol" onclick="rolSw()">Rol: Usuario</button>
+ <button id="fis" onclick="askFis()">Fiscalizador: —</button><button id="rol" onclick="rolSw()">Rol: Usuario</button>
  <button onclick="load(1)">Actualizar</button>
 </header>
 <main>
@@ -50,10 +49,10 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
  <div id="list"></div>
 </section>
 <section id="v3" class="hide">
- <div class="bar"><button onclick="back()">← Salir</button><b id="rt"></b><button onclick="stream?camOff():cam()">Cámara</button></div>
- <div id="camb"><video id="vid" playsinline muted></video></div>
+ <div class="bar"><button onclick="back()">← Salir</button><b id="rt"></b></div>
+ <div class="bar"><select id="pick" style="flex:1" onchange="scan(this.value);this.value=''"></select></div>
  <div id="items"></div>
- <div class="bar"><input id="sc" placeholder="Ingresar código manualmente y Enter" onkeydown="if(event.key==='Enter'){scan(this.value);this.value=''}"><button onclick="scan($('#sc').value);$('#sc').value=''">Ingresar</button></div>
+ <div class="bar"><input id="sc" placeholder="Digitar o pistolear código y Enter" autofocus autocomplete="off" onkeydown="if(event.key==='Enter'){scan(this.value);this.value=''}"><button onclick="scan($('#sc').value);$('#sc').value=''">Ingresar</button></div>
  <div class="bar"><button class="p" onclick="fin()">Finalizar revisión de TS</button></div>
 </section>
 <dialog id="dg"></dialog>
@@ -64,16 +63,20 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
 </main>
 <div id="toast"></div>
 <script>
-const API='https://script.google.com/macros/s/AKfycbxsM067vS9IgrSuiQ2YrKiseMd0NgfMIjuhMM6QKu9hgvEFOQWrtIkm-GGd-AyZQ8kgHQ/exec ';
-let D={},R={},cur=null,SUP='',stream=null,tm=null;
+const API='https://script.google.com/macros/s/AKfycbxsM067vS9IgrSuiQ2YrKiseMd0NgfMIjuhMM6QKu9hgvEFOQWrtIkm-GGd-AyZQ8kgHQ/exec';
+let D={},R={},cur=null,SUP='',tm=null,FIS=localStorage.getItem('fis')||'';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const num=v=>parseFloat(String(v||'0').replace(',','.'))||0;
 function toast(m,bad){const t=$('#toast');t.textContent=m;t.style.borderColor=bad?'var(--er)':'var(--am)';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2600);if(bad&&navigator.vibrate)navigator.vibrate(200)}
 async function api(o){const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(o)});return r.json()}
 async function load(m){try{const r=await(await fetch(API)).json();D={};(r.docs||[]).forEach(d=>D[d.doc]=d);const keep=cur&&R[cur];R={};(r.revs||[]).forEach(v=>R[v.doc]=v);if(keep)R[cur]=keep;if(!cur)list();if(m)toast('Datos actualizados')}catch(e){toast('No se pudo conectar con Google Sheets',1)}}
-function tab(n){cur=null;camOff();[1,2,3].forEach(i=>$('#v'+i).classList.toggle('hide',i!==n));$('#t1').classList.toggle('on',n===1);$('#t2').classList.toggle('on',n===2);if(n===1)list();if(n===2){if(!$('#dt').value)$('#dt').value=new Date().toISOString().slice(0,10);rep()}}
-async function rolSw(){if(SUP){SUP='';}else{const k=prompt('Clave de Super usuario');if(!k)return;const r=await api({a:'checkKey',key:k});if(!r.ok)return toast('Clave incorrecta',1);SUP=k}$('#rol').textContent='Rol: '+(SUP?'Super usuario':'Usuario');if(!cur)list()}
+function tab(n){cur=null;[1,2,3].forEach(i=>$('#v'+i).classList.toggle('hide',i!==n));$('#t1').classList.toggle('on',n===1);$('#t2').classList.toggle('on',n===2);if(n===1)list();if(n===2){if(!$('#dt').value)$('#dt').value=new Date().toISOString().slice(0,10);rep()}}
+async function rolSw(){
+ if(SUP)SUP='';else{const k=(prompt('Clave de Super usuario')||'').trim();if(!k)return;
+  try{const r=await api({a:'checkKey',key:k});if(!r.ok)return toast('Clave incorrecta',1);SUP=k}
+  catch(e){return toast('No se pudo verificar la clave: Google Apps Script no responde (revisa la implementación)',1)}}
+ $('#rol').textContent='Rol: '+(SUP?'Super usuario':'Usuario');toast(SUP?'Super usuario activo: verás el botón Eliminar en cada transferencia':'Modo Usuario');list()}
 
 // ---------- XML ----------
 function parseXML(t){
@@ -114,14 +117,19 @@ function list(){
 async function del(k){if(!confirm('¿Eliminar la transferencia '+k+' y su revisión?'))return;const r=await api({a:'delDoc',doc:k,key:SUP});if(!r.ok)return toast(r.error,1);delete D[k];delete R[k];list()}
 
 // ---------- Revisión ----------
-const dg=$('#dg'),its=()=>Object.values(D[cur].items);let dm=null;
+const dg=$('#dg'),its=()=>Object.values(D[cur].items),exp=it=>it.series.length||it.un;let dm=null;
 dg.addEventListener('close',()=>{dm=null});
+dg.addEventListener('cancel',e=>{if(dm&&dm.t==='fis')e.preventDefault()});
 const isDone=it=>!!rev(cur).done[it.code];
 const got=it=>{const r=rev(cur);return it.series.length?(r.ser[it.code]||[]).length:(r.cnt[it.code]||0)};
-function openDoc(k){cur=k;const r=rev(k);r.done=r.done||{};[1,2,3].forEach(i=>$('#v'+i).classList.toggle('hide',i!==3));const d=D[k];$('#rt').textContent=k+'  '+d.orig+' → '+d.dest;draw();cam()}
-function back(){camOff();if(dg.open)dg.close();cur=null;tab(1);load()}
+function askFis(){dm={t:'fis'};show(`<h3>Fiscalizador</h3><p class="mu">Nombre de quien realiza la revisión</p><input id="fi" value="${esc(FIS)}" style="width:100%" onkeydown="if(event.key==='Enter')setFis()"><p><button class="p" onclick="setFis()">Ingresar</button></p>`);$('#fi').focus()}
+function setFis(){const v=$('#fi').value.trim();if(!v)return toast('Ingresa tu nombre',1);FIS=v;try{localStorage.setItem('fis',v)}catch(e){}$('#fis').textContent='Fiscalizador: '+v;closeDg()}
+function openDoc(k){cur=k;const r=rev(k);r.done=r.done||{};[1,2,3].forEach(i=>$('#v'+i).classList.toggle('hide',i!==3));const d=D[k];$('#rt').textContent=k+'  '+d.orig+' → '+d.dest;draw();$('#sc').focus()}
+function back(){if(dg.open)dg.close();cur=null;tab(1);load()}
 function save(){clearTimeout(tm);tm=setTimeout(()=>api({a:'saveRev',rev:R[cur]}),400)}
-function draw(){$('#items').innerHTML=its().map(it=>{const c=got(it),d=isDone(it),ok=c===it.un;return `<div class="it ${d?(ok?'ok':'falta'):''}"><div><b>${esc(it.code)}</b> <span class="mu">${esc(it.desc)}</span></div><div>${!d?'<span class="mu">pendiente</span>':ok?'<span class="ok">OK</span>':`<span class="er">${c<it.un?'faltan '+(it.un-c):'sobran '+(c-it.un)}</span>`}</div></div>`}).join('')}
+function draw(){
+ $('#pick').innerHTML='<option value="">Elegir código de la lista…</option>'+its().map(i=>`<option value="${esc(i.code)}">${isDone(i)?'✓ ':''}${esc(i.code)} — ${esc(i.desc)}</option>`).join('');
+ $('#items').innerHTML=its().map(it=>{const c=got(it),u=exp(it),d=isDone(it),ok=c===u;return `<div class="it ${d?(ok?'ok':'falta'):''}" data-c="${esc(it.code)}" onclick="scan(this.dataset.c)" style="cursor:pointer"><div><b>${esc(it.code)}</b> <span class="mu">${esc(it.desc)}</span></div><div>${!d?'<span class="mu">pendiente</span>':ok?'<span class="ok">OK</span>':`<span class="er">${c<u?'faltan '+(u-c):'sobran '+(c-u)}</span>`}</div></div>`}).join('')}
 function show(h){dg.innerHTML=h;if(!dg.open)dg.showModal()}
 function closeDg(){dm=null;if(dg.open)dg.close();$('#sc').focus()}
 function scan(v){
@@ -134,43 +142,44 @@ function scan(v){
 function err(m){const prev=dm;dm={t:'err',prev};if(navigator.vibrate)navigator.vibrate(300);show(`<h3 class="er">Alerta</h3><p>${esc(m)}</p><button class="p" onclick="errOk()">Continuar</button>`)}
 function errOk(){const p=dm.prev;dm=p;if(p&&p.t==='sr')renderSr(p.it);else if(p&&p.t==='ns')openNs(p.it);else closeDg()}
 function head(it){return `<h3>${esc(it.code)}</h3><p class="mu">${esc(it.desc)}${it.ubic?' · '+esc(it.ubic):''}</p>`}
-function openNs(it){dm={t:'ns',it};const c=rev(cur).cnt[it.code];show(head(it)+`<label>Cantidad<br><input id="qn" type="number" min="0" inputmode="numeric" value="${c??''}" onkeydown="if(event.key==='Enter')nsOk()"></label><p><button class="p" onclick="nsOk()">Confirmar</button> <button onclick="closeDg()">Cancelar</button></p>`);$('#qn').focus()}
+function openNs(it){dm={t:'ns',it};const c=rev(cur).cnt[it.code];show(head(it)+`<label>Cantidad (por defecto la de la transferencia; modifícala si hay diferencia)<br><input id="qn" type="number" min="0" inputmode="numeric" value="${c??it.un}" onkeydown="if(event.key==='Enter')nsOk()"></label><p><button class="p" onclick="nsOk()">Confirmar</button> <button onclick="closeDg()">Cancelar</button></p>`);$('#qn').focus();$('#qn').select()}
 function nsOk(){const n=parseInt($('#qn').value);if(isNaN(n)||n<0)return toast('Ingresa una cantidad válida',1);rev(cur).cnt[dm.it.code]=n;res(dm.it)}
-function openSr(it){dm={t:'sr',it};renderSr(it)}
-function renderSr(it){const a=rev(cur).ser[it.code]||[];dm={t:'sr',it};show(head(it)+`<p>Escanea las series con la cámara o ingrésalas.</p><p class="am">Series leídas: <b>${a.length}</b></p><div class="mu">${a.map(esc).join('<br>')}</div><p><input id="sn" placeholder="Serie" onkeydown="if(event.key==='Enter'){serie(this.value)}"> <button onclick="serie($('#sn').value)">Agregar</button></p><p><button class="p" onclick="res(dm.it)">Terminar artículo</button> <button onclick="closeDg()">Cancelar</button></p>`);$('#sn').focus()}
+function openSr(it){renderSr(it)}
+function renderSr(it){const a=rev(cur).ser[it.code]||[];dm={t:'sr',it};show(head(it)+`<p>Pistolea o ingresa las series de este artículo.</p><p class="am">Series leídas: <b>${a.length}</b></p><div class="mu">${a.map(esc).join('<br>')}</div><p><input id="sn" placeholder="Serie" onkeydown="if(event.key==='Enter'){serie(this.value)}"> <button onclick="serie($('#sn').value)">Agregar</button></p><p><button class="p" onclick="res(dm.it)">Terminar artículo</button> <button onclick="closeDg()">Cancelar</button></p>`);$('#sn').focus()}
 function serie(v){
  v=String(v||'').trim();if(!v)return;const it=dm.it,r=rev(cur),a=r.ser[it.code]||(r.ser[it.code]=[]);
  if(!it.series.includes(v))return err('La serie '+v+' no corresponde a este artículo de la transferencia.');
  if(a.includes(v))return err('La serie '+v+' ya fue escaneada.');
- a.push(v);r.estado='en_curso';save();a.length===it.un?res(it):renderSr(it)
+ a.push(v);r.estado='en_curso';save();a.length===exp(it)?res(it):renderSr(it)
 }
 function res(it){
- dm={t:'res',it};const c=got(it),u=it.un,r=rev(cur);r.estado='en_curso';save();
- show(head(it)+(c===u?`<h2 class="ok">OK</h2><p>${c} unidades${it.series.length?' y series OK':''}.</p>`:`<h2 class="er">Diferencia</h2><p>${c<u?'Faltan '+(u-c)+' unidades':'Sobran '+(c-u)+' unidades'}.</p>`)+`<p><button onclick="${it.series.length?'openSr':'openNs'}(dm.it)">Corregir</button> <button class="p" onclick="cont()">Continuar</button></p>`)
+ dm={t:'res',it};const c=got(it),u=exp(it),s=it.series.length,r=rev(cur);r.estado='en_curso';save();
+ show(head(it)+(c===u?`<h2 class="ok">OK</h2><p>${c} ${s?'series verificadas':'unidades'}.</p>`:`<h2 class="er">Diferencia</h2><p>${c<u?'Faltan '+(u-c):'Sobran '+(c-u)} ${s?'series':'unidades'}.</p>`)+`<p><button onclick="${s?'openSr':'openNs'}(dm.it)">Corregir</button> <button class="p" onclick="cont()">Continuar</button></p>`)
 }
 function cont(){rev(cur).done[dm.it.code]=true;save();draw();closeDg()}
-const difs=()=>its().filter(i=>got(i)!==i.un).map(i=>({code:i.code,desc:i.desc,esp:i.un,cnt:got(i)}));
+const difs=()=>its().filter(i=>got(i)!==exp(i)).map(i=>({code:i.code,desc:i.desc,esp:exp(i),cnt:got(i)}));
+function comp(f){return new Promise((ok,ko)=>{const im=new Image();im.onload=()=>{const k=Math.min(1,1280/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.7).split(',')[1])};im.onerror=ko;im.src=URL.createObjectURL(f)})}
 function fin(){
  const p=its().filter(i=>!isDone(i));if(p.length)return toast('Faltan '+p.length+' artículos por revisar. Puedes salir y continuar después.',1);
+ dm={t:'fin'};show(`<h3>Foto de la mercadería (opcional)</h3><input id="ph" type="file" accept="image/*" capture="environment"><p id="phm" class="am"></p><p><button class="p" onclick="photo(1)">Guardar foto y continuar</button> <button onclick="photo(0)">Omitir foto</button> <button onclick="closeDg()">Cancelar</button></p>`)
+}
+async function photo(u){
+ if(u){const f=$('#ph').files[0];if(!f)return toast('Toma o elige una foto, o pulsa Omitir',1);
+  $('#phm').textContent='Subiendo foto…';
+  try{const r=await api({a:'photo',doc:cur,data:await comp(f)});if(!r.ok)throw 0;rev(cur).foto=r.url}
+  catch(e){$('#phm').textContent='';return toast('No se pudo subir la foto. Reintenta u omite.',1)}}
+ nov()
+}
+function nov(){
  const df=difs();if(!df.length)return finish();
  dm={t:'fin'};show(`<h3>Novedades de la transferencia</h3>${df.map(x=>`<div class="er">${esc(x.code)}: esperado ${x.esp}, contado ${x.cnt}</div>`).join('')}<p><label>Preparó<br><input id="fp" value="${esc(D[cur].user)}"></label></p><p><label>Detalle de la novedad<br><textarea id="fn" rows="3" style="width:100%"></textarea></label></p><p><button class="p" onclick="finish(1)">Guardar y finalizar</button> <button onclick="closeDg()">Cancelar</button></p>`)
 }
 function finish(f){
- const d=D[cur],r=rev(cur),df=difs();
+ const r=rev(cur),df=difs();
  if(f){r.prep=$('#fp').value.trim();r.novedad=$('#fn').value.trim();if(!r.prep||!r.novedad)return toast('Indica quién preparó y el detalle',1)}
- r.difs=df;r.nItems=its().length;r.esp=tot(d);r.got=its().reduce((s,i)=>s+got(i),0);r.estado='completa';r.fin=new Date().toISOString();
+ r.difs=df;r.fisc=FIS;r.nItems=its().length;r.esp=its().reduce((s,i)=>s+exp(i),0);r.got=its().reduce((s,i)=>s+got(i),0);r.estado='completa';r.fin=new Date().toISOString();
  clearTimeout(tm);api({a:'saveRev',rev:r});closeDg();toast('Revisión finalizada');back()
 }
-
-// ---------- Cámara ----------
-async function cam(){
- if(stream)return;
- try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})}catch(e){return toast('No se pudo abrir la cámara (requiere HTTPS y permiso). Usa el ingreso manual.',1)}
- const v=$('#vid');v.srcObject=stream;await v.play();$('#camb').style.display='block';
- const c=document.createElement('canvas'),x=c.getContext('2d',{willReadFrequently:true});let last='',lt=0;
- (function tick(){if(!stream)return;if(v.videoWidth){c.width=v.videoWidth;c.height=v.videoHeight;x.drawImage(v,0,0);const q=jsQR(x.getImageData(0,0,c.width,c.height).data,c.width,c.height);if(q&&q.data&&(q.data!==last||Date.now()-lt>2500)){last=q.data;lt=Date.now();scan(q.data)}}requestAnimationFrame(tick)})()
-}
-function camOff(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('#camb').style.display='none'}
 
 // ---------- Reporte ----------
 function repData(){
@@ -186,15 +195,15 @@ function rep(){
  <tr><td>Transferencias sin novedades</td><td class="ok">${n-con.length}</td></tr><tr><td>Transferencias con novedades</td><td class="er">${con.length}</td></tr>
  <tr><td>Ítems transferidos (artículos revisados)</td><td>${it}</td></tr><tr><td>Ítems sin novedades</td><td class="ok">${it-itC}</td></tr><tr><td>Ítems con novedades</td><td class="er">${itC}</td></tr>
  <tr><td>% de novedades por transferencia</td><td>${pc(con.length,n)}</td></tr><tr><td>% de novedades por artículo</td><td>${pc(itC,it)}</td></tr></table>
- <h3 class="am">Detalle de novedades</h3><table><tr><th>Preparado por</th><th># de transferencia</th><th>Detalle</th></tr>
- ${con.map(r=>`<tr><td>${esc(r.prep)}</td><td>${esc(r.doc)}</td><td>${esc(r.novedad)}<br><span class="mu">${r.difs.map(x=>esc(x.code)+' (esp. '+x.esp+', cont. '+x.cnt+')').join('; ')}</span></td></tr>`).join('')||'<tr><td colspan="3" class="mu">Sin novedades</td></tr>'}</table>`
+ <h3 class="am">Detalle de novedades</h3><table><tr><th>Preparado por</th><th># de transferencia</th><th>Fiscalizó</th><th>Detalle</th><th>Foto</th></tr>
+ ${con.map(r=>`<tr><td>${esc(r.prep)}</td><td>${esc(r.doc)}</td><td>${esc(r.fisc)}</td><td>${esc(r.novedad)}<br><span class="mu">${r.difs.map(x=>esc(x.code)+' (esp. '+x.esp+', cont. '+x.cnt+')').join('; ')}</span></td><td>${r.foto?`<a href="${esc(r.foto)}" target="_blank" style="color:var(--am)">ver</a>`:''}</td></tr>`).join('')||'<tr><td colspan="5" class="mu">Sin novedades</td></tr>'}</table>`
 }
 function xl(){
  const a=repData(),rows=[];
- a.forEach(r=>{const b={Documento:r.doc,Fecha:r.d.fecha,Origen:r.d.orig,Destino:r.d.dest,'Preparó':r.prep||r.d.user,Esperadas:r.esp,Contadas:r.got};
+ a.forEach(r=>{const b={Documento:r.doc,Fecha:r.d.fecha,Origen:r.d.orig,Destino:r.d.dest,'Preparó':r.prep||r.d.user,'Fiscalizó':r.fisc||'','Foto':r.foto||'',Esperadas:r.esp,Contadas:r.got};
   if(r.difs&&r.difs.length)r.difs.forEach(x=>rows.push({...b,Codigo:x.code,Descripcion:x.desc,'Esperado':x.esp,'Contado':x.cnt,Novedad:r.novedad}));else rows.push({...b,Novedad:'Sin diferencias'})});
  if(!rows.length)return toast('No hay datos para esa fecha',1);
  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Reporte');XLSX.writeFile(wb,'reporte_'+$('#dt').value+'.xlsx')
 }
-load();setInterval(()=>{if(!cur)load()},20000);
+askFis();load();setInterval(()=>{if(!cur)load()},20000);
 </script></body></html>
