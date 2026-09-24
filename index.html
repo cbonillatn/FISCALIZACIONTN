@@ -166,7 +166,7 @@ function res(it){
 }
 function cont(){rev(cur).done[dm.it.code]=true;save();draw();closeDg()}
 const difs=()=>its().filter(i=>got(i)!==exp(i)).map(i=>({code:i.code,desc:i.desc,esp:exp(i),cnt:got(i)}));
-function comp(f){return new Promise((ok,ko)=>{const im=new Image();im.onload=()=>{const k=Math.min(1,1280/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.7).split(',')[1])};im.onerror=ko;im.src=URL.createObjectURL(f)})}
+function comp(f){return new Promise((ok,ko)=>{const im=new Image();im.onload=()=>{const k=Math.min(1,1024/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.6).split(',')[1])};im.onerror=ko;im.src=URL.createObjectURL(f)})}
 function fin(){
  const p=its().filter(i=>!isDone(i));if(p.length)return toast('Faltan '+p.length+' artículos por revisar. Puedes salir y continuar después.',1);
  dm={t:'fin'};show(`<h3>Foto de la mercadería (opcional)</h3><input id="ph" type="file" accept="image/*" capture="environment"><p id="phm" class="am"></p><p><button class="p" onclick="photo(1)">Guardar foto y continuar</button> <button onclick="photo(0)">Omitir foto</button> <button onclick="closeDg()">Cancelar</button></p>`)
