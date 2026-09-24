@@ -82,7 +82,15 @@ async function api(o){try{return await raw(o)}catch(e){toast('Sin conexión con 
 let Q=[],busy=false,lastErr='';
 const st=()=>{$('#sync').innerHTML=Q.length?`<span class="${lastErr?'er':'am'}">${lastErr?'⚠ Sin guardar ('+Q.length+'): '+esc(lastErr):'⏳ Guardando ('+Q.length+')…'}</span>`:''};
 function enq(o,after){if(o.a==='saveRev')Q=Q.filter((x,i)=>(i===0&&busy)||!(x.o.a==='saveRev'&&x.o.rev.doc===o.rev.doc));Q.push({o,after});st();pump()}
-async function pump(){if(busy)return;busy=true;while(Q.length){const x=Q[0];try{const s=await raw(x.o);if(!s.ok)throw new Error(s.error||'error del servidor');Q.shift();lastErr='';if(x.after)x.after(s)}catch(e){lastErr=String(e.message||e).slice(0,160);st();await new Promise(r=>setTimeout(r,8000))}st()}busy=false}
+async function pump(){if(busy)return;busy=true;
+ while(Q.length){const x=Q[0];
+  try{const s=await raw(x.o);if(!s.ok)throw new Error(s.error||'error del servidor');Q.shift();lastErr='';if(x.after)x.after(s)}
+  catch(e){lastErr=String(e.message||e).slice(0,160);x.n=(x.n||0)+1;
+   if(x.o.a==='photo'&&x.n>=3){Q.shift();lastErr='';toast('No se pudo confirmar la foto. Si aparece en Drive, su enlace se registra solo en la hoja Fotos.',1)}
+   else Q.push(Q.shift());
+   st();await new Promise(r=>setTimeout(r,4000))}
+  st()}
+ busy=false}
 addEventListener('beforeunload',e=>{if(Q.length){e.preventDefault();e.returnValue=''}});
 async function load(m){try{const r=await(await fetch(API)).json();D={};(r.docs||[]).forEach(d=>D[d.doc]=d);const keep=cur&&R[cur];P={};(r.preps||[]).forEach(p=>P[p.ts]=p);R={};(r.revs||[]).forEach(v=>R[v.doc]=v);if(keep)R[cur]=keep;Q.forEach(x=>{const o=x.o;if(o.a==='saveRev')R[o.rev.doc]=o.rev;if(o.a==='savePrep')P[o.prep.ts]=o.prep;if(o.a==='saveDocs')o.docs.forEach(d=>D[d.doc]=d)});try{localStorage.setItem('cache',JSON.stringify({D,R,P}))}catch(e){}if(!cur){list();preps()}if(m)toast('Datos actualizados')}catch(e){toast('No se pudo conectar con Google Sheets',1)}}
 function tab(n){cur=null;[1,2,3,4].forEach(i=>$('#v'+i).classList.toggle('hide',i!==n));$('#t1').classList.toggle('on',n===1);$('#t2').classList.toggle('on',n===2);$('#t3').classList.toggle('on',n===4);if(n===4)preps();if(n===1)list();if(n===2){if(!$('#dt').value)$('#dt').value=new Date().toISOString().slice(0,10);rep()}}
@@ -180,7 +188,7 @@ function fin(){
 async function photo(u){
  if(u){const f=$('#ph').files[0];if(!f)return toast('Toma o elige una foto, o pulsa Omitir',1);
   $('#phm').textContent='Preparando foto…';
-  try{const data=await comp(f),k=cur;enq({a:'photo',doc:k,data},s=>{if(R[k]){R[k].foto=s.url;enq({a:'saveRev',rev:R[k]})}})}catch(e){$('#phm').textContent='';return toast('No se pudo leer la foto',1)}}
+  try{const data=await comp(f),k=cur;enq({a:'photo',doc:k,data,pid:Date.now().toString(36)+Math.random().toString(36).slice(2,6),fisc:FIS},s=>{if(R[k]){R[k].foto=s.url;enq({a:'saveRev',rev:R[k]})}})}catch(e){$('#phm').textContent='';return toast('No se pudo leer la foto',1)}}
  nov()
 }
 function nov(){
