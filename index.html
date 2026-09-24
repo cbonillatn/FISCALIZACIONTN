@@ -36,7 +36,7 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
 <header>
  <h1>Revisión de Transferencias</h1>
  <span class="tabs"><button id="t1" class="on" onclick="tab(1)">Transferencias</button><button id="t2" onclick="tab(2)">Reporte diario</button><button id="t3" onclick="tab(4)">Preparación</button></span>
- <button id="fis" onclick="askFis()">Fiscalizador: —</button><button id="rol" onclick="rolSw()">Rol: Usuario</button>
+ <span id="sync"></span><button id="fis" onclick="askFis()">Fiscalizador: —</button><button id="rol" onclick="rolSw()">Rol: Usuario</button>
  <button onclick="load(1)">Actualizar</button>
 </header>
 <main>
@@ -71,14 +71,20 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
 </main>
 <div id="toast"></div>
 <script>
-const API='https://script.google.com/macros/s/AKfycbxsM067vS9IgrSuiQ2YrKiseMd0NgfMIjuhMM6QKu9hgvEFOQWrtIkm-GGd-AyZQ8kgHQ/exec';
+const API='PEGAR_AQUI_LA_URL_DE_APPS_SCRIPT';
 let D={},R={},P={},cur=null,SUP='',tm=null,FIS=localStorage.getItem('fis')||'';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const num=v=>parseFloat(String(v||'0').replace(',','.'))||0;
 function toast(m,bad){const t=$('#toast');t.textContent=m;t.style.borderColor=bad?'var(--er)':'var(--am)';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2600);if(bad&&navigator.vibrate)navigator.vibrate(200)}
-async function api(o){try{const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(o)});return await r.json()}catch(e){toast('Sin conexión con Google Apps Script (revisa la implementación): no se guardó nada',1);throw e}}
-async function load(m){try{const r=await(await fetch(API)).json();D={};(r.docs||[]).forEach(d=>D[d.doc]=d);const keep=cur&&R[cur];P={};(r.preps||[]).forEach(p=>P[p.ts]=p);R={};(r.revs||[]).forEach(v=>R[v.doc]=v);if(keep)R[cur]=keep;if(!cur){list();preps()}if(m)toast('Datos actualizados')}catch(e){toast('No se pudo conectar con Google Sheets',1)}}
+const raw=async o=>(await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(o)})).json();
+async function api(o){try{return await raw(o)}catch(e){toast('Sin conexión con Google Apps Script (revisa la implementación): no se guardó nada',1);throw e}}
+let Q=[],busy=false,lastErr='';
+const st=()=>{$('#sync').innerHTML=Q.length?`<span class="${lastErr?'er':'am'}">${lastErr?'⚠ Sin guardar ('+Q.length+'): '+esc(lastErr):'⏳ Guardando ('+Q.length+')…'}</span>`:''};
+function enq(o,after){if(o.a==='saveRev')Q=Q.filter((x,i)=>(i===0&&busy)||!(x.o.a==='saveRev'&&x.o.rev.doc===o.rev.doc));Q.push({o,after});st();pump()}
+async function pump(){if(busy)return;busy=true;while(Q.length){const x=Q[0];try{const s=await raw(x.o);if(!s.ok)throw new Error(s.error||'error del servidor');Q.shift();lastErr='';if(x.after)x.after(s)}catch(e){lastErr=String(e.message||e).slice(0,160);st();await new Promise(r=>setTimeout(r,8000))}st()}busy=false}
+addEventListener('beforeunload',e=>{if(Q.length){e.preventDefault();e.returnValue=''}});
+async function load(m){try{const r=await(await fetch(API)).json();D={};(r.docs||[]).forEach(d=>D[d.doc]=d);const keep=cur&&R[cur];P={};(r.preps||[]).forEach(p=>P[p.ts]=p);R={};(r.revs||[]).forEach(v=>R[v.doc]=v);if(keep)R[cur]=keep;Q.forEach(x=>{const o=x.o;if(o.a==='saveRev')R[o.rev.doc]=o.rev;if(o.a==='savePrep')P[o.prep.ts]=o.prep;if(o.a==='saveDocs')o.docs.forEach(d=>D[d.doc]=d)});try{localStorage.setItem('cache',JSON.stringify({D,R,P}))}catch(e){}if(!cur){list();preps()}if(m)toast('Datos actualizados')}catch(e){toast('No se pudo conectar con Google Sheets',1)}}
 function tab(n){cur=null;[1,2,3,4].forEach(i=>$('#v'+i).classList.toggle('hide',i!==n));$('#t1').classList.toggle('on',n===1);$('#t2').classList.toggle('on',n===2);$('#t3').classList.toggle('on',n===4);if(n===4)preps();if(n===1)list();if(n===2){if(!$('#dt').value)$('#dt').value=new Date().toISOString().slice(0,10);rep()}}
 async function rolSw(){
  if(SUP)SUP='';else{const k=(prompt('Clave de Super usuario')||'').trim();if(!k)return;
@@ -103,7 +109,7 @@ function parseXML(t){
 }
 async function upl(files){
  let nuevos=0,dups=[];
- for(const f of files){try{const ds=parseXML(await f.text()),add=[];ds.forEach(d=>{if(D[d.doc])dups.push(d.doc);else{D[d.doc]=d;add.push(d);nuevos++}});if(add.length)await api({a:'saveDocs',docs:add})}catch(e){toast(f.name+': '+e.message,1)}}
+ for(const f of files){try{const ds=parseXML(await f.text()),add=[];ds.forEach(d=>{if(D[d.doc])dups.push(d.doc);else{D[d.doc]=d;add.push(d);nuevos++}});if(add.length)enq({a:'saveDocs',docs:add})}catch(e){toast(f.name+': '+e.message,1)}}
  $('#fx').value='';list();toast(nuevos+' nuevas'+(dups.length?' · Ya estaban subidas: '+dups.join(', '):''),dups.length>0)
 }
 
@@ -133,8 +139,8 @@ const got=it=>{const r=rev(cur);return it.series.length?(r.ser[it.code]||[]).len
 function askFis(){dm={t:'fis'};show(`<h3>Fiscalizador</h3><p class="mu">Nombre de quien realiza la revisión</p><input id="fi" value="${esc(FIS)}" style="width:100%" onkeydown="if(event.key==='Enter')setFis()"><p><button class="p" onclick="setFis()">Ingresar</button></p>`);$('#fi').focus()}
 function setFis(){const v=$('#fi').value.trim();if(!v)return toast('Ingresa tu nombre',1);FIS=v;try{localStorage.setItem('fis',v)}catch(e){}$('#fis').textContent='Fiscalizador: '+v;closeDg()}
 function openDoc(k){cur=k;const r=rev(k);r.done=r.done||{};[1,2,3,4].forEach(i=>$('#v'+i).classList.toggle('hide',i!==3));const d=D[k];$('#rt').textContent=k+'  '+d.orig+' → '+d.dest;draw();$('#sc').focus()}
-function back(){if(dg.open)dg.close();cur=null;tab(1);load()}
-function save(){clearTimeout(tm);tm=setTimeout(()=>api({a:'saveRev',rev:R[cur]}).catch(()=>{}),400)}
+function back(){if(dg.open)dg.close();cur=null;tab(1)}
+function save(){clearTimeout(tm);const r=R[cur];tm=setTimeout(()=>enq({a:'saveRev',rev:r}),400)}
 function draw(){
  $('#pick').innerHTML='<option value="">Elegir código de la lista…</option>'+its().map(i=>`<option value="${esc(i.code)}">${isDone(i)?'✓ ':''}${esc(i.code)} — ${esc(i.desc)}</option>`).join('');
  $('#items').innerHTML=its().map(it=>{const c=got(it),u=exp(it),d=isDone(it),ok=c===u;return `<div class="it ${d?(ok?'ok':'falta'):''}" data-c="${esc(it.code)}" onclick="scan(this.dataset.c)" style="cursor:pointer"><div><b>${esc(it.code)}</b> <span class="mu">${esc(it.desc)}</span></div><div>${!d?'<span class="mu">pendiente</span>':ok?'<span class="ok">OK</span>':`<span class="er">${c<u?'faltan '+(u-c):'sobran '+(c-u)}</span>`}</div></div>`}).join('')}
@@ -173,9 +179,8 @@ function fin(){
 }
 async function photo(u){
  if(u){const f=$('#ph').files[0];if(!f)return toast('Toma o elige una foto, o pulsa Omitir',1);
-  $('#phm').textContent='Subiendo foto…';
-  try{const r=await api({a:'photo',doc:cur,data:await comp(f)});if(!r.ok)throw new Error(r.error);rev(cur).foto=r.url}
-  catch(e){$('#phm').textContent='';return toast('No se pudo subir la foto: '+(e.message||'sin conexión')+'. Reintenta u omite.',1)}}
+  $('#phm').textContent='Preparando foto…';
+  try{const data=await comp(f),k=cur;enq({a:'photo',doc:k,data},s=>{if(R[k]){R[k].foto=s.url;enq({a:'saveRev',rev:R[k]})}})}catch(e){$('#phm').textContent='';return toast('No se pudo leer la foto',1)}}
  nov()
 }
 function nov(){
@@ -186,9 +191,7 @@ async function finish(f){
  const r=rev(cur),df=difs();
  if(f){r.prep=$('#fp').value.trim();r.novedad=$('#fn').value.trim();if(!r.prep||!r.novedad)return toast('Indica quién preparó y el detalle',1)}
  r.difs=df;r.fisc=FIS;r.nItems=its().length;r.esp=its().reduce((s,i)=>s+exp(i),0);r.got=its().reduce((s,i)=>s+got(i),0);r.estado='completa';r.fin=new Date().toISOString();
- clearTimeout(tm);
- try{const s=await api({a:'saveRev',rev:r});if(!s.ok)throw new Error(s.error)}catch(e){r.estado='en_curso';return toast('No se guardó la revisión'+(e.message?': '+e.message:'')+'. Tus datos siguen aquí; reintenta.',1)}
- closeDg();toast('Revisión finalizada');back()
+ clearTimeout(tm);enq({a:'saveRev',rev:r});closeDg();toast('Revisión finalizada');back()
 }
 
 // ---------- Preparación ----------
@@ -197,16 +200,13 @@ function banner(){
  const pd=Object.values(P).filter(p=>p.estado!=='subida');
  $('#alerta').innerHTML=pd.length?`<div style="border:1px solid var(--am);border-left:4px solid var(--am);padding:8px 10px;margin:8px 0;background:var(--pn)"><b class="am">⚠ Tienes ${pd.length} transferencia(s) pendiente(s) por subir a la app</b>${pd.map(p=>`<div style="margin-top:6px">${esc(p.ts)} → ${esc(p.dest)} · ${esc(p.prep)} · entrega ${esc(fh(p.fecha))} ${D[p.ts]?'<span class="ok">(XML ya cargado)</span>':''} <button data-t="${esc(p.ts)}" onclick="mark(this.dataset.t)">Marcar como subida</button></div>`).join('')}</div>`:''
 }
-async function mark(ts){
- const p=P[ts];if(!p)return;p.estado='subida';p.subidaPor=FIS;p.subidaAt=new Date().toISOString();banner();preps();
- try{const s=await api({a:'savePrep',prep:p});if(!s.ok)throw 0}catch(e){p.estado='pendiente';banner();preps();if(e===0)toast('No se pudo marcar como subida',1)}
-}
+function mark(ts){const p=P[ts];if(!p)return;p.estado='subida';p.subidaPor=FIS;p.subidaAt=new Date().toISOString();banner();preps();enq({a:'savePrep',prep:p})}
 async function regPrep(){
  const v=i=>$(i).value.trim(),ts=v('#pt'),dest=v('#pd'),prep=v('#pp'),f=nowL();
  if(!ts||!dest||!prep)return toast('Completa N° de TS, destino y preparado por',1);
  if(P[ts])return toast('La TS '+ts+' ya fue registrada',1);
  const p={ts,dest,prep,fecha:f,estado:'pendiente',reg:new Date().toISOString()};
- try{const s=await api({a:'savePrep',prep:p});if(!s.ok)throw 0}catch(e){if(e===0)toast('No se pudo registrar',1);return}
+ enq({a:'savePrep',prep:p});
  P[ts]=p;$('#pt').value='';$('#pd').value='';preps();banner();toast('TS '+ts+' registrada')
 }
 function preps(){
@@ -243,5 +243,6 @@ function xl(){
  if(!rows.length)return toast('No hay datos para esa fecha',1);
  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Reporte');XLSX.writeFile(wb,'reporte_'+$('#dt').value+'.xlsx')
 }
-askFis();load();setInterval(()=>{if(!cur)load()},20000);
+try{const c=JSON.parse(localStorage.getItem('cache')||'null');if(c){D=c.D;R=c.R;P=c.P;list();preps()}}catch(e){}
+askFis();load();setInterval(()=>{if(!cur&&!document.hidden&&!Q.length&&!dg.open)load()},45000);
 </script></body></html>
