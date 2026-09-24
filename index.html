@@ -174,8 +174,8 @@ function fin(){
 async function photo(u){
  if(u){const f=$('#ph').files[0];if(!f)return toast('Toma o elige una foto, o pulsa Omitir',1);
   $('#phm').textContent='Subiendo foto…';
-  try{const r=await api({a:'photo',doc:cur,data:await comp(f)});if(!r.ok)throw 0;rev(cur).foto=r.url}
-  catch(e){$('#phm').textContent='';return toast('No se pudo subir la foto. Reintenta u omite.',1)}}
+  try{const r=await api({a:'photo',doc:cur,data:await comp(f)});if(!r.ok)throw new Error(r.error);rev(cur).foto=r.url}
+  catch(e){$('#phm').textContent='';return toast('No se pudo subir la foto: '+(e.message||'sin conexión')+'. Reintenta u omite.',1)}}
  nov()
 }
 function nov(){
