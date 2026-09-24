@@ -35,12 +35,13 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
 </style></head><body>
 <header>
  <h1>Revisión de Transferencias</h1>
- <span class="tabs"><button id="t1" class="on" onclick="tab(1)">Transferencias</button><button id="t2" onclick="tab(2)">Reporte diario</button></span>
+ <span class="tabs"><button id="t1" class="on" onclick="tab(1)">Transferencias</button><button id="t2" onclick="tab(2)">Reporte diario</button><button id="t3" onclick="tab(4)">Preparación</button></span>
  <button id="fis" onclick="askFis()">Fiscalizador: —</button><button id="rol" onclick="rolSw()">Rol: Usuario</button>
  <button onclick="load(1)">Actualizar</button>
 </header>
 <main>
 <section id="v1">
+ <div id="alerta"></div>
  <div class="bar">
   <label class="p" style="padding:6px 10px;cursor:pointer;background:var(--am);color:#101214;font-weight:700">Cargar XML<input type="file" id="fx" accept=".xml" multiple class="hide" onchange="upl(this.files)"></label>
   <input id="q" placeholder="Buscar documento, bodega destino, usuario, fecha o código" oninput="list()">
@@ -55,6 +56,13 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
  <div class="bar"><input id="sc" placeholder="Digitar o pistolear código y Enter" autofocus autocomplete="off" onkeydown="if(event.key==='Enter'){scan(this.value);this.value=''}"><button onclick="scan($('#sc').value);$('#sc').value=''">Ingresar</button></div>
  <div class="bar"><button class="p" onclick="fin()">Finalizar revisión de TS</button></div>
 </section>
+<section id="v4" class="hide">
+ <h3 class="am">Transferencias preparadas para fiscalización</h3>
+ <p class="mu">La fecha y hora de entrega se registran automáticamente al pulsar Registrar.</p>
+ <div class="bar"><input id="pt" placeholder="N° de TS"><input id="pd" placeholder="Destino"><input id="pp" placeholder="Preparado por"><button class="p" onclick="regPrep()">Registrar</button></div>
+ <div class="bar"><select id="pfl" onchange="preps()"><option value="pend">Pendientes de subir</option><option value="hist">Historial (ya subidas)</option></select></div>
+ <div id="pl"></div>
+</section>
 <dialog id="dg"></dialog>
 <section id="v2" class="hide">
  <div class="bar"><input type="date" id="dt" onchange="rep()"><button class="p" onclick="rep()">Generar reporte</button><button onclick="xl()">Exportar Excel</button></div>
@@ -64,19 +72,19 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
 <div id="toast"></div>
 <script>
 const API='https://script.google.com/macros/s/AKfycbxsM067vS9IgrSuiQ2YrKiseMd0NgfMIjuhMM6QKu9hgvEFOQWrtIkm-GGd-AyZQ8kgHQ/exec';
-let D={},R={},cur=null,SUP='',tm=null,FIS=localStorage.getItem('fis')||'';
+let D={},R={},P={},cur=null,SUP='',tm=null,FIS=localStorage.getItem('fis')||'';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const num=v=>parseFloat(String(v||'0').replace(',','.'))||0;
 function toast(m,bad){const t=$('#toast');t.textContent=m;t.style.borderColor=bad?'var(--er)':'var(--am)';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2600);if(bad&&navigator.vibrate)navigator.vibrate(200)}
-async function api(o){const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(o)});return r.json()}
-async function load(m){try{const r=await(await fetch(API)).json();D={};(r.docs||[]).forEach(d=>D[d.doc]=d);const keep=cur&&R[cur];R={};(r.revs||[]).forEach(v=>R[v.doc]=v);if(keep)R[cur]=keep;if(!cur)list();if(m)toast('Datos actualizados')}catch(e){toast('No se pudo conectar con Google Sheets',1)}}
-function tab(n){cur=null;[1,2,3].forEach(i=>$('#v'+i).classList.toggle('hide',i!==n));$('#t1').classList.toggle('on',n===1);$('#t2').classList.toggle('on',n===2);if(n===1)list();if(n===2){if(!$('#dt').value)$('#dt').value=new Date().toISOString().slice(0,10);rep()}}
+async function api(o){try{const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(o)});return await r.json()}catch(e){toast('Sin conexión con Google Apps Script (revisa la implementación): no se guardó nada',1);throw e}}
+async function load(m){try{const r=await(await fetch(API)).json();D={};(r.docs||[]).forEach(d=>D[d.doc]=d);const keep=cur&&R[cur];P={};(r.preps||[]).forEach(p=>P[p.ts]=p);R={};(r.revs||[]).forEach(v=>R[v.doc]=v);if(keep)R[cur]=keep;if(!cur){list();preps()}if(m)toast('Datos actualizados')}catch(e){toast('No se pudo conectar con Google Sheets',1)}}
+function tab(n){cur=null;[1,2,3,4].forEach(i=>$('#v'+i).classList.toggle('hide',i!==n));$('#t1').classList.toggle('on',n===1);$('#t2').classList.toggle('on',n===2);$('#t3').classList.toggle('on',n===4);if(n===4)preps();if(n===1)list();if(n===2){if(!$('#dt').value)$('#dt').value=new Date().toISOString().slice(0,10);rep()}}
 async function rolSw(){
  if(SUP)SUP='';else{const k=(prompt('Clave de Super usuario')||'').trim();if(!k)return;
   try{const r=await api({a:'checkKey',key:k});if(!r.ok)return toast('Clave incorrecta',1);SUP=k}
   catch(e){return toast('No se pudo verificar la clave: Google Apps Script no responde (revisa la implementación)',1)}}
- $('#rol').textContent='Rol: '+(SUP?'Super usuario':'Usuario');toast(SUP?'Super usuario activo: verás el botón Eliminar en cada transferencia':'Modo Usuario');list()}
+ $('#rol').textContent='Rol: '+(SUP?'Super usuario':'Usuario');toast(SUP?'Super usuario activo: verás el botón Eliminar en cada transferencia':'Modo Usuario');list();preps()}
 
 // ---------- XML ----------
 function parseXML(t){
@@ -102,7 +110,7 @@ async function upl(files){
 // ---------- Lista ----------
 const rev=k=>R[k]||(R[k]={doc:k,estado:'en_curso',cnt:{},ser:{},done:{}});
 const tot=d=>Object.values(d.items).reduce((s,i)=>s+i.un,0);
-function list(){
+function list(){banner();
  const q=$('#q').value.trim().toLowerCase(),f=$('#fl').value;
  const ds=Object.values(D).filter(d=>{
   const e=R[d.doc]&&R[d.doc].estado;
@@ -124,9 +132,9 @@ const isDone=it=>!!rev(cur).done[it.code];
 const got=it=>{const r=rev(cur);return it.series.length?(r.ser[it.code]||[]).length:(r.cnt[it.code]||0)};
 function askFis(){dm={t:'fis'};show(`<h3>Fiscalizador</h3><p class="mu">Nombre de quien realiza la revisión</p><input id="fi" value="${esc(FIS)}" style="width:100%" onkeydown="if(event.key==='Enter')setFis()"><p><button class="p" onclick="setFis()">Ingresar</button></p>`);$('#fi').focus()}
 function setFis(){const v=$('#fi').value.trim();if(!v)return toast('Ingresa tu nombre',1);FIS=v;try{localStorage.setItem('fis',v)}catch(e){}$('#fis').textContent='Fiscalizador: '+v;closeDg()}
-function openDoc(k){cur=k;const r=rev(k);r.done=r.done||{};[1,2,3].forEach(i=>$('#v'+i).classList.toggle('hide',i!==3));const d=D[k];$('#rt').textContent=k+'  '+d.orig+' → '+d.dest;draw();$('#sc').focus()}
+function openDoc(k){cur=k;const r=rev(k);r.done=r.done||{};[1,2,3,4].forEach(i=>$('#v'+i).classList.toggle('hide',i!==3));const d=D[k];$('#rt').textContent=k+'  '+d.orig+' → '+d.dest;draw();$('#sc').focus()}
 function back(){if(dg.open)dg.close();cur=null;tab(1);load()}
-function save(){clearTimeout(tm);tm=setTimeout(()=>api({a:'saveRev',rev:R[cur]}),400)}
+function save(){clearTimeout(tm);tm=setTimeout(()=>api({a:'saveRev',rev:R[cur]}).catch(()=>{}),400)}
 function draw(){
  $('#pick').innerHTML='<option value="">Elegir código de la lista…</option>'+its().map(i=>`<option value="${esc(i.code)}">${isDone(i)?'✓ ':''}${esc(i.code)} — ${esc(i.desc)}</option>`).join('');
  $('#items').innerHTML=its().map(it=>{const c=got(it),u=exp(it),d=isDone(it),ok=c===u;return `<div class="it ${d?(ok?'ok':'falta'):''}" data-c="${esc(it.code)}" onclick="scan(this.dataset.c)" style="cursor:pointer"><div><b>${esc(it.code)}</b> <span class="mu">${esc(it.desc)}</span></div><div>${!d?'<span class="mu">pendiente</span>':ok?'<span class="ok">OK</span>':`<span class="er">${c<u?'faltan '+(u-c):'sobran '+(c-u)}</span>`}</div></div>`}).join('')}
@@ -174,11 +182,41 @@ function nov(){
  const df=difs();if(!df.length)return finish();
  dm={t:'fin'};show(`<h3>Novedades de la transferencia</h3>${df.map(x=>`<div class="er">${esc(x.code)}: esperado ${x.esp}, contado ${x.cnt}</div>`).join('')}<p><label>Preparó<br><input id="fp" value="${esc(D[cur].user)}"></label></p><p><label>Detalle de la novedad<br><textarea id="fn" rows="3" style="width:100%"></textarea></label></p><p><button class="p" onclick="finish(1)">Guardar y finalizar</button> <button onclick="closeDg()">Cancelar</button></p>`)
 }
-function finish(f){
+async function finish(f){
  const r=rev(cur),df=difs();
  if(f){r.prep=$('#fp').value.trim();r.novedad=$('#fn').value.trim();if(!r.prep||!r.novedad)return toast('Indica quién preparó y el detalle',1)}
  r.difs=df;r.fisc=FIS;r.nItems=its().length;r.esp=its().reduce((s,i)=>s+exp(i),0);r.got=its().reduce((s,i)=>s+got(i),0);r.estado='completa';r.fin=new Date().toISOString();
- clearTimeout(tm);api({a:'saveRev',rev:r});closeDg();toast('Revisión finalizada');back()
+ clearTimeout(tm);
+ try{const s=await api({a:'saveRev',rev:r});if(!s.ok)throw new Error(s.error)}catch(e){r.estado='en_curso';return toast('No se guardó la revisión'+(e.message?': '+e.message:'')+'. Tus datos siguen aquí; reintenta.',1)}
+ closeDg();toast('Revisión finalizada');back()
+}
+
+// ---------- Preparación ----------
+const nowL=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,16),fh=s=>String(s||'').replace('T',' ');
+function banner(){
+ const pd=Object.values(P).filter(p=>p.estado!=='subida');
+ $('#alerta').innerHTML=pd.length?`<div style="border:1px solid var(--am);border-left:4px solid var(--am);padding:8px 10px;margin:8px 0;background:var(--pn)"><b class="am">⚠ Tienes ${pd.length} transferencia(s) pendiente(s) por subir a la app</b>${pd.map(p=>`<div style="margin-top:6px">${esc(p.ts)} → ${esc(p.dest)} · ${esc(p.prep)} · entrega ${esc(fh(p.fecha))} ${D[p.ts]?'<span class="ok">(XML ya cargado)</span>':''} <button data-t="${esc(p.ts)}" onclick="mark(this.dataset.t)">Marcar como subida</button></div>`).join('')}</div>`:''
+}
+async function mark(ts){
+ const p=P[ts];if(!p)return;p.estado='subida';p.subidaPor=FIS;p.subidaAt=new Date().toISOString();banner();preps();
+ try{const s=await api({a:'savePrep',prep:p});if(!s.ok)throw 0}catch(e){p.estado='pendiente';banner();preps();if(e===0)toast('No se pudo marcar como subida',1)}
+}
+async function regPrep(){
+ const v=i=>$(i).value.trim(),ts=v('#pt'),dest=v('#pd'),prep=v('#pp'),f=nowL();
+ if(!ts||!dest||!prep)return toast('Completa N° de TS, destino y preparado por',1);
+ if(P[ts])return toast('La TS '+ts+' ya fue registrada',1);
+ const p={ts,dest,prep,fecha:f,estado:'pendiente',reg:new Date().toISOString()};
+ try{const s=await api({a:'savePrep',prep:p});if(!s.ok)throw 0}catch(e){if(e===0)toast('No se pudo registrar',1);return}
+ P[ts]=p;$('#pt').value='';$('#pd').value='';preps();banner();toast('TS '+ts+' registrada')
+}
+function preps(){
+ const h=$('#pfl').value==='hist',a=Object.values(P).filter(p=>h?p.estado==='subida':p.estado!=='subida').sort((x,y)=>String(y.fecha).localeCompare(String(x.fecha)));
+ $('#pl').innerHTML=a.map(p=>`<div class="row" style="cursor:default"><div><b>${esc(p.ts)}</b><div class="mu">${esc(p.dest)}</div></div><div>${esc(p.prep)}</div><div class="mu">Entrega ${esc(fh(p.fecha))}${p.estado==='subida'?'<div class="ok">Subida por '+esc(p.subidaPor||'')+'</div>':''}</div><div>${SUP?`<button class="x" data-t="${esc(p.ts)}" onclick="delPrep(this.dataset.t)">Eliminar</button>`:''}</div></div>`).join('')||'<p class="mu">Sin registros.</p>'
+}
+async function delPrep(ts){
+ if(!confirm('¿Eliminar el registro de la TS '+ts+'?'))return;
+ try{const s=await api({a:'delPrep',ts,key:SUP});if(!s.ok)return toast(s.error||'No se pudo eliminar',1)}catch(e){return}
+ delete P[ts];preps();banner()
 }
 
 // ---------- Reporte ----------
