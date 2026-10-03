@@ -77,20 +77,21 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const num=v=>parseFloat(String(v||'0').replace(',','.'))||0;
 function toast(m,bad){const t=$('#toast');t.textContent=m;t.style.borderColor=bad?'var(--er)':'var(--am)';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2600);if(bad&&navigator.vibrate)navigator.vibrate(200)}
-const raw=async o=>(await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(o)})).json();
+const raw=async o=>{const c=new AbortController(),id=setTimeout(()=>c.abort(),12000);try{return await(await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(o),signal:c.signal})).json()}finally{clearTimeout(id)}};
 async function api(o){try{return await raw(o)}catch(e){toast('Sin conexión con Google Apps Script (revisa la implementación): no se guardó nada',1);throw e}}
 let Q=[],busy=false,lastErr='';
-const st=()=>{$('#sync').innerHTML=Q.length?`<span class="${lastErr?'er':'am'}">${lastErr?'⚠ Sin guardar ('+Q.length+'): '+esc(lastErr):'⏳ Guardando ('+Q.length+')…'}</span>`:''};
+const st=()=>{$('#sync').innerHTML=Q.length?`<span class="${lastErr?'er':'am'}">${lastErr?'⚠ Sin guardar ('+Q.length+'): '+esc(lastErr)+' <button onclick="retryNow()">Reintentar ahora</button>':'⏳ Guardando ('+Q.length+')…'}</span>`:''};
 function enq(o,after){if(o.a==='saveRev')Q=Q.filter((x,i)=>(i===0&&busy)||!(x.o.a==='saveRev'&&x.o.rev.doc===o.rev.doc));Q.push({o,after});st();pump()}
 async function pump(){if(busy)return;busy=true;
  while(Q.length){const x=Q[0];
   try{const s=await raw(x.o);if(!s.ok)throw new Error(s.error||'error del servidor');Q.shift();lastErr='';if(x.after)x.after(s)}
-  catch(e){lastErr=String(e.message||e).slice(0,160);x.n=(x.n||0)+1;
+  catch(e){lastErr=(e.name==='AbortError'?'Google tardó demasiado, reintentando':String(e.message||e)).slice(0,160);x.n=(x.n||0)+1;
    if(x.o.a==='photo'&&x.n>=3){Q.shift();lastErr='';toast('No se pudo confirmar la foto. Si aparece en Drive, su enlace se registra solo en la hoja Fotos.',1)}
    else Q.push(Q.shift());
-   st();await new Promise(r=>setTimeout(r,4000))}
+   st();await new Promise(r=>setTimeout(r,Math.min(1200*x.n,6000)))}
   st()}
  busy=false}
+function retryNow(){if(!busy)pump()}
 addEventListener('beforeunload',e=>{if(Q.length){e.preventDefault();e.returnValue=''}});
 async function load(m){try{const r=await(await fetch(API)).json();D={};(r.docs||[]).forEach(d=>D[d.doc]=d);const keep=cur&&R[cur];P={};(r.preps||[]).forEach(p=>P[p.ts]=p);R={};(r.revs||[]).forEach(v=>R[v.doc]=v);if(keep)R[cur]=keep;Q.forEach(x=>{const o=x.o;if(o.a==='saveRev')R[o.rev.doc]=o.rev;if(o.a==='savePrep')P[o.prep.ts]=o.prep;if(o.a==='saveDocs')o.docs.forEach(d=>D[d.doc]=d)});try{localStorage.setItem('cache',JSON.stringify({D,R,P}))}catch(e){}if(!cur){list();preps()}if(m)toast('Datos actualizados')}catch(e){toast('No se pudo conectar con Google Sheets',1)}}
 function tab(n){cur=null;[1,2,3,4].forEach(i=>$('#v'+i).classList.toggle('hide',i!==n));$('#t1').classList.toggle('on',n===1);$('#t2').classList.toggle('on',n===2);$('#t3').classList.toggle('on',n===4);if(n===4)preps();if(n===1)list();if(n===2){if(!$('#dt').value)$('#dt').value=new Date().toISOString().slice(0,10);rep()}}
@@ -192,12 +193,17 @@ async function photo(u){
  nov()
 }
 function nov(){
- const df=difs();if(!df.length)return finish();
- dm={t:'fin'};show(`<h3>Novedades de la transferencia</h3>${df.map(x=>`<div class="er">${esc(x.code)}: esperado ${x.esp}, contado ${x.cnt}</div>`).join('')}<p><label>Preparó<br><input id="fp" value="${esc(D[cur].user)}"></label></p><p><label>Detalle de la novedad<br><textarea id="fn" rows="3" style="width:100%"></textarea></label></p><p><button class="p" onclick="finish(1)">Guardar y finalizar</button> <button onclick="closeDg()">Cancelar</button></p>`)
+ const df=difs();dm={t:'fin'};
+ show(`<h3>${df.length?'Novedades de la transferencia':'Finalizar revisión'}</h3>
+ ${df.length?df.map(x=>`<div class="er">${esc(x.code)}: esperado ${x.esp}, contado ${x.cnt}</div>`).join(''):'<p class="ok">Sin diferencias de cantidad.</p>'}
+ ${df.length?`<p><label>Preparó<br><input id="fp" value="${esc(D[cur].user)}"></label></p><p><label>Detalle de la novedad<br><textarea id="fn" rows="3" style="width:100%"></textarea></label></p>`:''}
+ <p><label>Observación adicional (opcional)<br><textarea id="fo" rows="2" style="width:100%" placeholder="Ej: artículo no consta en la transferencia, material sobrante, artículos sin etiquetar"></textarea></label></p>
+ <p><button class="p" onclick="finish()">Guardar y finalizar</button> <button onclick="closeDg()">Cancelar</button></p>`)
 }
-async function finish(f){
+async function finish(){
  const r=rev(cur),df=difs();
- if(f){r.prep=$('#fp').value.trim();r.novedad=$('#fn').value.trim();if(!r.prep||!r.novedad)return toast('Indica quién preparó y el detalle',1)}
+ if(df.length){r.prep=$('#fp').value.trim();r.novedad=$('#fn').value.trim();if(!r.prep||!r.novedad)return toast('Indica quién preparó y el detalle',1)}
+ const obs=($('#fo')?$('#fo').value.trim():'');if(obs)r.obs=obs;else delete r.obs;
  r.difs=df;r.fisc=FIS;r.nItems=its().length;r.esp=its().reduce((s,i)=>s+exp(i),0);r.got=its().reduce((s,i)=>s+got(i),0);r.estado='completa';r.fin=new Date().toISOString();
  clearTimeout(tm);enq({a:'saveRev',rev:r});closeDg();toast('Revisión finalizada');back()
 }
@@ -233,7 +239,7 @@ function repData(){
  return Object.values(R).filter(r=>r.estado==='completa'&&r.fin&&new Date(r.fin).toLocaleDateString('en-CA')===f).map(r=>({...r,d:D[r.doc]||{}}));
 }
 function rep(){
- const a=repData(),con=a.filter(r=>r.difs&&r.difs.length),n=a.length;
+ const a=repData(),con=a.filter(r=>(r.difs&&r.difs.length)||r.obs),n=a.length;
  const it=a.reduce((s,r)=>s+(r.nItems||0),0),itC=a.reduce((s,r)=>s+(r.difs?r.difs.length:0),0);
  const pc=(x,y)=>y?(100*x/y).toFixed(1)+'%':'0%';
  $('#rp').innerHTML=`<h3>Reporte del ${esc($('#dt').value)}</h3><table>
@@ -241,13 +247,13 @@ function rep(){
  <tr><td>Transferencias sin novedades</td><td class="ok">${n-con.length}</td></tr><tr><td>Transferencias con novedades</td><td class="er">${con.length}</td></tr>
  <tr><td>Ítems transferidos (artículos revisados)</td><td>${it}</td></tr><tr><td>Ítems sin novedades</td><td class="ok">${it-itC}</td></tr><tr><td>Ítems con novedades</td><td class="er">${itC}</td></tr>
  <tr><td>% de novedades por transferencia</td><td>${pc(con.length,n)}</td></tr><tr><td>% de novedades por artículo</td><td>${pc(itC,it)}</td></tr></table>
- <h3 class="am">Detalle de novedades</h3><table><tr><th>Preparado por</th><th># de transferencia</th><th>Fiscalizó</th><th>Detalle</th><th>Foto</th></tr>
- ${con.map(r=>`<tr><td>${esc(r.prep)}</td><td>${esc(r.doc)}</td><td>${esc(r.fisc)}</td><td>${esc(r.novedad)}<br><span class="mu">${r.difs.map(x=>esc(x.code)+' (esp. '+x.esp+', cont. '+x.cnt+')').join('; ')}</span></td><td>${r.foto?`<a href="${esc(r.foto)}" target="_blank" style="color:var(--am)">ver</a>`:''}</td></tr>`).join('')||'<tr><td colspan="5" class="mu">Sin novedades</td></tr>'}</table>`
+ <h3 class="am">Detalle de novedades</h3><table><tr><th>Preparado por</th><th># de transferencia</th><th>Fiscalizó</th><th>Detalle</th><th>Observación</th><th>Foto</th></tr>
+ ${con.map(r=>`<tr><td>${esc(r.prep||'')}</td><td>${esc(r.doc)}</td><td>${esc(r.fisc)}</td><td>${r.novedad?esc(r.novedad)+(r.difs&&r.difs.length?'<br><span class="mu">'+r.difs.map(x=>esc(x.code)+' (esp. '+x.esp+', cont. '+x.cnt+')').join('; ')+'</span>':''):'<span class="mu">—</span>'}</td><td>${esc(r.obs||'')}</td><td>${r.foto?`<a href="${esc(r.foto)}" target="_blank" style="color:var(--am)">ver</a>`:''}</td></tr>`).join('')||'<tr><td colspan="6" class="mu">Sin novedades</td></tr>'}</table>`
 }
 function xl(){
  const a=repData(),rows=[];
- a.forEach(r=>{const b={Documento:r.doc,Fecha:r.d.fecha,Origen:r.d.orig,Destino:r.d.dest,'Preparó':r.prep||r.d.user,'Fiscalizó':r.fisc||'','Foto':r.foto||'',Esperadas:r.esp,Contadas:r.got};
-  if(r.difs&&r.difs.length)r.difs.forEach(x=>rows.push({...b,Codigo:x.code,Descripcion:x.desc,'Esperado':x.esp,'Contado':x.cnt,Novedad:r.novedad}));else rows.push({...b,Novedad:'Sin diferencias'})});
+ a.forEach(r=>{const b={Documento:r.doc,Fecha:r.d.fecha,Origen:r.d.orig,Destino:r.d.dest,'Preparó':r.prep||r.d.user,'Fiscalizó':r.fisc||'','Foto':r.foto||'',Esperadas:r.esp,Contadas:r.got,'Observación':r.obs||''};
+  if(r.difs&&r.difs.length)r.difs.forEach(x=>rows.push({...b,Codigo:x.code,Descripcion:x.desc,'Esperado':x.esp,'Contado':x.cnt,Novedad:r.novedad}));else rows.push({...b,Novedad:r.obs?'Sin diferencias (ver observación)':'Sin diferencias'})});
  if(!rows.length)return toast('No hay datos para esa fecha',1);
  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Reporte');XLSX.writeFile(wb,'reporte_'+$('#dt').value+'.xlsx')
 }
