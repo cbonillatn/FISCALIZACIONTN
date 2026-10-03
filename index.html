@@ -45,7 +45,7 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
  <div class="bar">
   <label class="p" style="padding:6px 10px;cursor:pointer;background:var(--am);color:#101214;font-weight:700">Cargar XML<input type="file" id="fx" accept=".xml" multiple class="hide" onchange="upl(this.files)"></label>
   <input id="q" placeholder="Buscar documento, bodega destino, usuario, fecha o código" oninput="list()">
-  <select id="fl" onchange="list()"><option value="pend">Pendientes</option><option value="all">Todas</option><option value="inc">Incompletas</option><option value="done">Revisadas (historial)</option></select>
+  <select id="fl" onchange="list()"><option value="pend">Pendientes</option><option value="all">Todas</option><option value="inc">Incompletas</option><option value="done">Revisadas (últimos 15 días)</option></select>
  </div>
  <div id="list"></div>
 </section>
@@ -258,5 +258,5 @@ function xl(){
  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Reporte');XLSX.writeFile(wb,'reporte_'+$('#dt').value+'.xlsx')
 }
 try{const c=JSON.parse(localStorage.getItem('cache')||'null');if(c){D=c.D;R=c.R;P=c.P;list();preps()}}catch(e){}
-askFis();load();setInterval(()=>{if(!cur&&!document.hidden&&!Q.length&&!dg.open)load()},45000);
+askFis();load();setInterval(()=>{if(!cur&&!document.hidden&&!Q.length&&!dg.open)load()},90000);
 </script></body></html>
