@@ -71,8 +71,8 @@ dialog{background:var(--pn);color:var(--tx);border:2px solid var(--am);width:92%
 </main>
 <div id="toast"></div>
 <script>
-const API='https://script.google.com/macros/s/AKfycbx_pycKI5Tk9YHTt9t5G0oD_H7z9jyNYpqxKC9evX_PzT_9VkMjkDEsiGxIwXTiSWh_/exec';
-let D={},R={},P={},cur=null,SUP='',tm=null,FIS=localStorage.getItem('fis')||'';
+const API='https://script.google.com/macros/s/AKfycbwRjv057ZCJL-zoMdE0SRcklSrSv19Za_VdEG9qWt2TaUjpslOYujwgWE0jQDiIT1xW0Q/exec';
+let D={},R={},P={},SINCE=0,cur=null,SUP='',tm=null,FIS=localStorage.getItem('fis')||'';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const num=v=>parseFloat(String(v||'0').replace(',','.'))||0;
@@ -84,7 +84,7 @@ const st=()=>{$('#sync').innerHTML=Q.length?`<span class="${lastErr?'er':'am'}">
 function enq(o,after){if(o.a==='saveRev')Q=Q.filter((x,i)=>(i===0&&busy)||!(x.o.a==='saveRev'&&x.o.rev.doc===o.rev.doc));Q.push({o,after});st();pump()}
 async function pump(){if(busy)return;busy=true;
  while(Q.length){const x=Q[0];
-  try{const s=await raw(x.o);if(!s.ok)throw new Error(s.error||'error del servidor');Q.shift();lastErr='';if(x.after)x.after(s)}
+  try{const s=await raw(x.o);if(!s.ok){if(/Clave incorrecta/.test(s.error||'')){Q.shift();lastErr='';toast('Clave de Super usuario incorrecta: no se eliminó',1);st();continue}throw new Error(s.error||'error del servidor')}Q.shift();lastErr='';if(x.after)x.after(s)}
   catch(e){lastErr=(e.name==='AbortError'?'Google tardó demasiado, reintentando':String(e.message||e)).slice(0,160);x.n=(x.n||0)+1;
    if(x.o.a==='photo'&&x.n>=3){Q.shift();lastErr='';toast('No se pudo confirmar la foto. Si aparece en Drive, su enlace se registra solo en la hoja Fotos.',1)}
    else Q.push(Q.shift());
@@ -93,7 +93,21 @@ async function pump(){if(busy)return;busy=true;
  busy=false}
 function retryNow(){if(!busy)pump()}
 addEventListener('beforeunload',e=>{if(Q.length){e.preventDefault();e.returnValue=''}});
-async function load(m){try{const r=await(await fetch(API)).json();D={};(r.docs||[]).forEach(d=>D[d.doc]=d);const keep=cur&&R[cur];P={};(r.preps||[]).forEach(p=>P[p.ts]=p);R={};(r.revs||[]).forEach(v=>R[v.doc]=v);if(keep)R[cur]=keep;Q.forEach(x=>{const o=x.o;if(o.a==='saveRev')R[o.rev.doc]=o.rev;if(o.a==='savePrep')P[o.prep.ts]=o.prep;if(o.a==='saveDocs')o.docs.forEach(d=>D[d.doc]=d)});try{localStorage.setItem('cache',JSON.stringify({D,R,P}))}catch(e){}if(!cur){list();preps()}if(m)toast('Datos actualizados')}catch(e){toast('No se pudo conectar con Google Sheets',1)}}
+async function load(m){
+ try{
+  const r=await(await fetch(API+(SINCE?'?since='+Math.max(SINCE-8000,0):''))).json();
+  if(r.error)throw new Error(r.error);
+  if(!r.now){D={};R={};P={}}                       // servidor antiguo: respuesta completa
+  const keep=cur&&R[cur];
+  const mrg=(S,list,keys,id)=>{list.forEach(o=>S[o[id]]=o);if(keys){const ks=new Set(keys);Object.keys(S).forEach(k=>{if(!ks.has(String(k)))delete S[k]})}};
+  mrg(D,r.docs||[],r.docsKeys,'doc');mrg(R,r.revs||[],r.revsKeys,'doc');mrg(P,r.preps||[],r.prepsKeys,'ts');
+  if(keep)R[cur]=keep;
+  Q.forEach(x=>{const o=x.o;if(o.a==='saveRev')R[o.rev.doc]=o.rev;if(o.a==='savePrep')P[o.prep.ts]=o.prep;if(o.a==='saveDocs')o.docs.forEach(d=>D[d.doc]=d);if(o.a==='delDoc'){delete D[o.doc];delete R[o.doc]}if(o.a==='delPrep')delete P[o.ts]});
+  if(r.now)SINCE=r.now;
+  try{localStorage.setItem('cache',JSON.stringify({D,R,P,since:SINCE}))}catch(e){}
+  if(!cur){list();preps()}if(m)toast('Datos actualizados')
+ }catch(e){toast('No se pudo actualizar desde Google Sheets'+(e.message?': '+e.message:''),1)}
+}
 function tab(n){cur=null;[1,2,3,4].forEach(i=>$('#v'+i).classList.toggle('hide',i!==n));$('#t1').classList.toggle('on',n===1);$('#t2').classList.toggle('on',n===2);$('#t3').classList.toggle('on',n===4);if(n===4)preps();if(n===1)list();if(n===2){if(!$('#dt').value)$('#dt').value=new Date().toISOString().slice(0,10);rep()}}
 async function rolSw(){
  if(SUP)SUP='';else{const k=(prompt('Clave de Super usuario')||'').trim();if(!k)return;
@@ -137,7 +151,7 @@ function list(){banner();
   const hit=q&&Object.keys(d.items).filter(c=>c.toLowerCase().includes(q));
   return `<div class="row ${e}" data-d="${esc(d.doc)}" onclick="openDoc(this.dataset.d)"><div><b>${esc(d.doc)}</b><div class="mu">${esc(d.fecha)}</div></div><div>${esc(d.orig)} → <b>${esc(d.dest)}</b><div class="mu">${esc(d.user)}</div></div><div class="mu">${Object.keys(d.items).length} art. · ${tot(d)} un.${hit&&hit.length?'<div class="am">contiene: '+esc(hit.join(', '))+'</div>':''}</div><div>${e==='en_curso'?'<span class="am">en curso</span>':e==='completa'?'<span class="ok">revisada</span>':'<span class="mu">pendiente</span>'}${SUP?` <button class="x" data-d="${esc(d.doc)}" onclick="event.stopPropagation();del(this.dataset.d)">Eliminar</button>`:''}</div></div>`}).join('')||'<p class="mu">No hay transferencias. Carga un XML para empezar.</p>';
 }
-async function del(k){if(!confirm('¿Eliminar la transferencia '+k+' y su revisión?'))return;const r=await api({a:'delDoc',doc:k,key:SUP});if(!r.ok)return toast(r.error,1);delete D[k];delete R[k];list()}
+function del(k){if(!confirm('¿Eliminar la transferencia '+k+' y su revisión?'))return;delete D[k];delete R[k];list();enq({a:'delDoc',doc:k,key:SUP})}
 
 // ---------- Revisión ----------
 const dg=$('#dg'),its=()=>Object.values(D[cur].items),exp=it=>it.series.length||it.un;let dm=null;
@@ -227,10 +241,9 @@ function preps(){
  const h=$('#pfl').value==='hist',a=Object.values(P).filter(p=>h?p.estado==='subida':p.estado!=='subida').sort((x,y)=>String(y.fecha).localeCompare(String(x.fecha)));
  $('#pl').innerHTML=a.map(p=>`<div class="row" style="cursor:default"><div><b>${esc(p.ts)}</b><div class="mu">${esc(p.dest)}</div></div><div>${esc(p.prep)}</div><div class="mu">Entrega ${esc(fh(p.fecha))}${p.estado==='subida'?'<div class="ok">Subida por '+esc(p.subidaPor||'')+'</div>':''}</div><div>${SUP?`<button class="x" data-t="${esc(p.ts)}" onclick="delPrep(this.dataset.t)">Eliminar</button>`:''}</div></div>`).join('')||'<p class="mu">Sin registros.</p>'
 }
-async function delPrep(ts){
+function delPrep(ts){
  if(!confirm('¿Eliminar el registro de la TS '+ts+'?'))return;
- try{const s=await api({a:'delPrep',ts,key:SUP});if(!s.ok)return toast(s.error||'No se pudo eliminar',1)}catch(e){return}
- delete P[ts];preps();banner()
+ delete P[ts];preps();banner();enq({a:'delPrep',ts,key:SUP})
 }
 
 // ---------- Reporte ----------
@@ -257,6 +270,6 @@ function xl(){
  if(!rows.length)return toast('No hay datos para esa fecha',1);
  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Reporte');XLSX.writeFile(wb,'reporte_'+$('#dt').value+'.xlsx')
 }
-try{const c=JSON.parse(localStorage.getItem('cache')||'null');if(c){D=c.D;R=c.R;P=c.P;list();preps()}}catch(e){}
+try{const c=JSON.parse(localStorage.getItem('cache')||'null');if(c){D=c.D;R=c.R;P=c.P;SINCE=c.since||0;list();preps()}}catch(e){}
 askFis();load();setInterval(()=>{if(!cur&&!document.hidden&&!Q.length&&!dg.open)load()},90000);
 </script></body></html>
